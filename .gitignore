@@ -1,0 +1,13 @@
+# Environments
+venv/
+__pycache__/
+
+# Secrets (DO NOT REMOVE THESE)
+.env
+serviceAccountKey.json
+
+snapcook_app/
+check_models.py
+seed.py
+seed_recipes.py
+test_scan.py
