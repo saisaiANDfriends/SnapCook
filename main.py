@@ -1,10 +1,10 @@
+# run - uvicorn main:app --host 0.0.0.0 --port 8000 --reload  
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from pydantic import BaseModel
 from typing import List
 import crud
 
 app = FastAPI(title="SnapCook API")
-
 # --- DATA MODELS ---
 class UserSchema(BaseModel):
     user_id: str
@@ -32,8 +32,9 @@ class RemoveFavoriteSchema(BaseModel):
 
 class RecipeSuggestion(BaseModel):
     recipe_name: str
+    image_url: str = ""
     detected_ingredients: List[str]
-    missing_ingredients: List[str]
+    missing_ingredients: List[str] = []
     estimated_servings: int
     serving_reasoning: str
     instructions: List[str]
@@ -93,27 +94,3 @@ async def search_recipes(data: dict):
 # --- ADD THIS TO YOUR main.py (Inside Endpoints) ---
 
 # --- ADD THIS TO main.py (Inside Endpoints section) ---
-
-@app.get("/recipes/suggestions")
-def get_suggestions():
-    # Returns a curated list of recipes for the Home Screen
-    return {
-        "suggestions": [
-            {
-                "recipe_name": "Chicken Adobo", 
-                "image_url": "https://upload.wikimedia.org/wikipedia/commons/c/c9/Adobo_DSC_1677.jpg"
-            },
-            {
-                "recipe_name": "Sinigang na Baboy", 
-                "image_url": "https://upload.wikimedia.org/wikipedia/commons/f/f3/Sinigang_na_Baboy_%28Pork_Sinigang%29.jpg"
-            },
-            {
-                "recipe_name": "Bicol Express", 
-                "image_url": "https://upload.wikimedia.org/wikipedia/commons/e/ec/Fried_chicken_2.jpg" 
-            },
-            {
-                "recipe_name": "Kare-Kare", 
-                "image_url": "https://upload.wikimedia.org/wikipedia/commons/a/a2/Kare-kare_01.jpg"
-            }
-        ]
-    }

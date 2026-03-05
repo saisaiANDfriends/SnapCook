@@ -8,8 +8,10 @@ import hashlib
 from duckduckgo_search import DDGS 
 from dotenv import load_dotenv
 import time
+import asyncio  # <--- NEW: Imported asyncio to prevent server blocking
+import requests
 
-load_dotenv()
+load_dotenv(override=True)
 
 # --- CONFIGURATION ---
 GENAI_API_KEY = os.getenv("GENAI_API_KEY")
@@ -22,25 +24,54 @@ USERS_COLLECTION = "users"
 RECIPES_COLLECTION = "recipes"
 CACHE_COLLECTION = "search_cache" 
 
-# --- HELPER: GET REAL IMAGE ---
 def get_dish_image(dish_name):
     """
-    Searches DuckDuckGo for a real image of the cooked dish.
+    Using Serper.dev as Google deprecated Custom Search API for new projects.
+    Acts as a universal filter to clean recipe names before searching.
     """
-    try:
-        with DDGS() as ddgs:
-            results = list(ddgs.images(
-                keywords=f"{dish_name} food cooked plating", 
-                max_results=1
-            ))
-            if results and len(results) > 0:
-                return results[0]['image']
-    except Exception as e:
-        print(f"Image Search Error: {e}")
+    api_key = os.getenv("SERPER_API_KEY")
     
-    # Fallback Placeholder
-    return "https://via.placeholder.com/400x300?text=No+Image"
+    # --- UNIVERSAL CLEANING LOGIC ---
+    # 1. Chop off parentheses
+    clean_name = dish_name.split('(')[0].strip()
+    # 2. Remove AI fluff words
+    clean_name = clean_name.replace("Classic", "").replace("Speedy", "").strip()
+    
+    print(f"--- [DEBUG] Serper searching for Cleaned Name: '{clean_name}' ---")
 
+    if not api_key:
+        print("--- [WARNING] Serper API key missing. Using placeholder. ---")
+        return "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=500&auto=format&fit=crop"
+
+    url = "https://google.serper.dev/images"
+    
+    # Use clean_name here!
+    payload = json.dumps({
+      "q": f"{clean_name} food plated Filipino" 
+    })
+    
+    headers = {
+      'X-API-KEY': api_key,
+      'Content-Type': 'application/json'
+    }
+
+    try:
+        response = requests.request("POST", url, headers=headers, data=payload, timeout=5)
+        
+        if response.status_code == 200:
+            data = response.json()
+            images = data.get('images', [])
+            if images:
+                return images[0]['imageUrl']
+            else:
+                print(f"--- [WARNING] Serper found NO images for '{clean_name}' ---")
+        else:
+            print(f"--- [SERPER API ERROR] Code: {response.status_code} | Msg: {response.text} ---")
+                
+    except Exception as e:
+        print(f"--- [Image Search Network Error] {e} ---")
+    
+    return "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=500&auto=format&fit=crop"
 # --- 1. FIRESTORE: USER MANAGEMENT ---
 def create_user(user_id: str, device_uuid: str):
     if db is None: return {"error": "Database not connected"}
@@ -113,32 +144,33 @@ def get_favorites(user_id: str):
 
 # --- 5. AI: IMAGE SCAN (STRICT QUANTITIES) ---
 def analyze_image_with_gemini(image_bytes):
-    print("--- [DEBUG] Sending Image to Gemini... ---")
+    print("--- [DEBUG] Sending Image to Gemini with STRICT Constraints... ---")
     model = genai.GenerativeModel('gemini-2.5-flash')
 
+    # --- THE NEW HYPER-STRICT PROMPT ---
     prompt = """
-    ROLE: You are an expert Head Chef.
-    TASK: Analyze the image and suggest 3 recipes.
+    ROLE: You are an expert Head Chef and a highly precise visual estimator.
+    TASK: Analyze the image of the ingredients. Suggest 3 recipes that can be made USING ONLY the ingredients visible in the picture.
+    
+    STRICT RULE 1 - NO MISSING INGREDIENTS:
+    The recipes MUST NOT require any ingredients that are not clearly visible in the image. You may ONLY assume the user has water, salt, pepper, and basic cooking oil. Do not add sauces, spices, or garnishes that you cannot see. 
+
+    STRICT RULE 2 - EXACT VISUAL SERVING ESTIMATION:
+    Carefully analyze the volume, count, and size of the physical ingredients in the image. Calculate the exact number of servings these specific items will yield. Do not use generic default servings.
+    Example: If you see exactly 2 chicken breasts and 3 potatoes, the yield is exactly 2 servings. 
     
     CRITICAL INSTRUCTION ON QUANTITIES:
-    You MUST provide specific measurements for EVERY ingredient based on the estimated servings.
-    - BAD: "Chicken", "Soy Sauce", "Garlic"
-    - GOOD: "500g Chicken Thighs", "1/2 cup Soy Sauce", "4 cloves Garlic (minced)"
+    You MUST provide specific measurements for EVERY detected ingredient based on your visual estimation.
+    - GOOD: "2 whole Chicken Breasts (approx 400g)", "3 medium Tomatoes"
 
-    CRITICAL INSTRUCTION ON INSTRUCTIONS:
-    Instructions must be detailed, step-by-step, and include cooking times.
-    - BAD: "Cook the chicken."
-    - GOOD: "Sear the chicken in the pan for 5-7 minutes until golden brown."
-
-    RETURN ONLY RAW JSON:
+    RETURN ONLY RAW JSON (Do NOT include a missing_ingredients field):
     {
       "suggestions": [
         {
           "recipe_name": "Name",
           "detected_ingredients": ["Quantity + Ingredient", "Quantity + Ingredient"],
-          "missing_ingredients": ["Quantity + Ingredient"],
           "estimated_servings": 2,
-          "serving_reasoning": "Based on volume visible",
+          "serving_reasoning": "I counted exactly 2 chicken breasts and 3 medium potatoes visible, which yields exactly 2 standard portions.",
           "instructions": ["Step 1 details...", "Step 2 details..."]
         }
       ]
@@ -156,17 +188,17 @@ def analyze_image_with_gemini(image_bytes):
         
         if "suggestions" in data:
             valid_suggestions = []
+            
             for recipe in data["suggestions"]:
                 name = recipe.get("recipe_name", "Food")
                 
-                if "no food" in name.lower() or "unknown" in name.lower() or "ingredient" in name.lower():
+                if "no food" in name.lower() or "unknown" in name.lower():
                     continue
 
-                servings = recipe.get("estimated_servings", 1)
-                if servings < 1: recipe["estimated_servings"] = 1
+                # Ensure servings are at least 1, but rely on the AI's strict estimation
+                recipe["estimated_servings"] = max(1, recipe.get("estimated_servings", 1))
 
-                print(f"--- [DEBUG] Waiting 2s before searching image for: {name} ---")
-                time.sleep(2) 
+                # Use the clean_name logic we just perfected!
                 recipe["image_url"] = get_dish_image(name)
                 
                 valid_suggestions.append(recipe)
@@ -233,8 +265,11 @@ async def search_recipes_by_text(ingredients_list: list):
                 servings = recipe.get("estimated_servings", 1)
                 if servings < 1: recipe["estimated_servings"] = 1
                 
-                print(f"--- [DEBUG] Waiting 2s before searching image for: {name} ---")
-                time.sleep(2) 
+                print(f"--- [DEBUG] Waiting 1s before searching image for: {name} ---")
+                
+                # --- NEW: Async sleep prevents your whole server from locking up! ---
+                await asyncio.sleep(1) 
+                
                 recipe["image_url"] = get_dish_image(name)
 
         # 3. SAVE TO CACHE
