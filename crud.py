@@ -5,7 +5,6 @@ import google.generativeai as genai
 import os
 import json
 import hashlib
-from duckduckgo_search import DDGS 
 from dotenv import load_dotenv
 import time
 import asyncio  # <--- NEW: Imported asyncio to prevent server blocking
