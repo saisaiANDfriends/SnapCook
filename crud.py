@@ -2,53 +2,19 @@ from firebase_config import get_db
 from datetime import datetime
 from google.cloud.firestore_v1.base_query import FieldFilter
 import google.generativeai as genai
-from google.api_core import exceptions  # <--- NEW: Required to catch the API limits
 import os
 import json
 import hashlib
 from dotenv import load_dotenv
 import time
-import asyncio  
+import asyncio  # <--- NEW: Imported asyncio to prevent server blocking
 import requests
 
 load_dotenv(override=True)
 
-# --- KEY MANAGER SYSTEM ---
-class GeminiKeyManager:
-    def __init__(self):
-        # Load keys from .env, split by comma
-        raw_keys = os.getenv("GENAI_API_KEYS", "")
-        key_list = [k.strip() for k in raw_keys.split(",") if k.strip()]
-        
-        if len(key_list) < 2:
-            print("--- [WARNING] Less than 2 keys found in .env. Rotation may be limited. ---")
-            
-        # Dictionary to track when each key is usable again (timestamp)
-        self.key_status = {key: 0.0 for key in key_list}
-        
-        # Using the correct preview model name
-        self.current_model_name = 'gemini-3.1-flash-lite-preview' 
-
-    def get_client(self):
-        """Finds an available key and configures the SDK."""
-        current_time = time.time()
-        
-        for key, usable_after in self.key_status.items():
-            if current_time >= usable_after:
-                genai.configure(api_key=key)
-                return genai.GenerativeModel(self.current_model_name), key
-        
-        # If loop finishes, all keys are currently on cooldown
-        return None, None
-
-    def apply_cooldown(self, key, seconds=60):
-        """Puts a specific key on cooldown."""
-        safe_key = key[-4:] if key else "Unknown"
-        print(f"--- [LIMIT REACHED] Putting key ...{safe_key} on cooldown for {seconds}s ---")
-        self.key_status[key] = time.time() + seconds
-
-# Initialize the global manager
-key_manager = GeminiKeyManager()
+# --- CONFIGURATION ---
+GENAI_API_KEY = os.getenv("GENAI_API_KEY")
+genai.configure(api_key=GENAI_API_KEY)  
 
 db = get_db()
 
@@ -105,7 +71,6 @@ def get_dish_image(dish_name):
         print(f"--- [Image Search Network Error] {e} ---")
     
     return "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=500&auto=format&fit=crop"
-
 # --- 1. FIRESTORE: USER MANAGEMENT ---
 def create_user(user_id: str, device_uuid: str):
     if db is None: return {"error": "Database not connected"}
@@ -176,12 +141,12 @@ def get_favorites(user_id: str):
     docs = db.collection(USERS_COLLECTION).document(user_id).collection("favorites").stream()
     return [doc.to_dict() for doc in docs]
 
-# --- 5. AI: IMAGE SCAN (STRICT QUANTITIES + ROTATION) ---
+# --- 5. AI: IMAGE SCAN (STRICT QUANTITIES) ---
 def analyze_image_with_gemini(image_bytes):
     print("--- [DEBUG] Sending Image to Gemini with STRICT Constraints... ---")
-    
-    max_attempts = len(key_manager.key_status)
+    model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
 
+    # --- THE NEW HYPER-STRICT PROMPT ---
     prompt = """
     ROLE: You are an expert Head Chef and a highly precise visual estimator.
     TASK: Analyze the image of the ingredients. Suggest 3 recipes that can be made USING ONLY the ingredients visible in the picture.
@@ -216,52 +181,40 @@ def analyze_image_with_gemini(image_bytes):
     }
     """
 
-    for attempt in range(max_attempts):
-        model, current_key = key_manager.get_client()
+    try:
+        response = model.generate_content([
+            {"mime_type": "image/jpeg", "data": image_bytes},
+            prompt
+        ])
         
-        if not model:
-            return {"error": "Server is experiencing high traffic. Please try scanning again in about a minute."}
-
-        try:
-            response = model.generate_content([
-                {"mime_type": "image/jpeg", "data": image_bytes},
-                prompt
-            ])
+        text = response.text.replace('```json', '').replace('```', '').strip()
+        data = json.loads(text)
+        
+        if "suggestions" in data:
+            valid_suggestions = []
             
-            text = response.text.replace('```json', '').replace('```', '').strip()
-            data = json.loads(text)
-            
-            if "suggestions" in data:
-                valid_suggestions = []
+            for recipe in data["suggestions"]:
+                name = recipe.get("recipe_name", "Food")
                 
-                for recipe in data["suggestions"]:
-                    name = recipe.get("recipe_name", "Food")
-                    
-                    if "no food" in name.lower() or "unknown" in name.lower():
-                        continue
+                if "no food" in name.lower() or "unknown" in name.lower():
+                    continue
 
-                    # Ensure servings are at least 1, but rely on the AI's strict estimation
-                    recipe["estimated_servings"] = max(1, recipe.get("estimated_servings", 1))
+                # Ensure servings are at least 1, but rely on the AI's strict estimation
+                recipe["estimated_servings"] = max(1, recipe.get("estimated_servings", 1))
 
-                    # Use the clean_name logic we just perfected!
-                    recipe["image_url"] = get_dish_image(name)
-                    
-                    valid_suggestions.append(recipe)
+                # Use the clean_name logic we just perfected!
+                recipe["image_url"] = get_dish_image(name)
                 
-                data["suggestions"] = valid_suggestions
-            return data
+                valid_suggestions.append(recipe)
             
-        except exceptions.ResourceExhausted:
-            key_manager.apply_cooldown(current_key, seconds=60)
-            continue
-            
-        except Exception as e:
-            print(f"Gemini Error: {e}")
-            return {"suggestions": []}
-            
-    return {"error": "All AI servers are currently busy. Please wait a moment before trying again."}
+            data["suggestions"] = valid_suggestions
+        return data
+        
+    except Exception as e:
+        print(f"Gemini Error: {e}")
+        return {"suggestions": []}
 
-# --- 6. AI: TEXT SEARCH (STRICT QUANTITIES + HISTORY + ROTATION) ---
+# --- 6. AI: TEXT SEARCH (STRICT QUANTITIES + HISTORY) ---
 async def search_recipes_by_text(ingredients_list: list):
     ingredients_str = ", ".join(ingredients_list)
     print(f"--- [DEBUG] Searching Text: {ingredients_str} ---")
@@ -278,7 +231,7 @@ async def search_recipes_by_text(ingredients_list: list):
             return doc.to_dict()
 
     # 2. ASK AI
-    max_attempts = len(key_manager.key_status)
+    model = genai.GenerativeModel('gemini-3.1-flash-lite-preview') 
 
     prompt = f"""
     ROLE: You are an expert Chef.
@@ -305,43 +258,31 @@ async def search_recipes_by_text(ingredients_list: list):
     }}
     """
     
-    for attempt in range(max_attempts):
-        model, current_key = key_manager.get_client()
-        
-        if not model:
-            return {"error": "Server is experiencing high traffic. Please try searching again in about a minute."}
+    try:
+        response = model.generate_content(prompt)
+        text = response.text.replace("```json", "").replace("```", "").strip()
+        data = json.loads(text)
 
-        try:
-            response = model.generate_content(prompt)
-            text = response.text.replace("```json", "").replace("```", "").strip()
-            data = json.loads(text)
+        if "suggestions" in data:
+            print("--- [DEBUG] Fetching images... ---")
+            for recipe in data["suggestions"]:
+                name = recipe.get("recipe_name", "Food")
+                servings = recipe.get("estimated_servings", 1)
+                if servings < 1: recipe["estimated_servings"] = 1
+                
+                print(f"--- [DEBUG] Waiting 1s before searching image for: {name} ---")
+                
+                # --- NEW: Async sleep prevents your whole server from locking up! ---
+                await asyncio.sleep(1) 
+                
+                recipe["image_url"] = get_dish_image(name)
 
-            if "suggestions" in data:
-                print("--- [DEBUG] Fetching images... ---")
-                for recipe in data["suggestions"]:
-                    name = recipe.get("recipe_name", "Food")
-                    servings = recipe.get("estimated_servings", 1)
-                    if servings < 1: recipe["estimated_servings"] = 1
-                    
-                    print(f"--- [DEBUG] Waiting 1s before searching image for: {name} ---")
-                    
-                    # --- NEW: Async sleep prevents your whole server from locking up! ---
-                    await asyncio.sleep(1) 
-                    
-                    recipe["image_url"] = get_dish_image(name)
+        # 3. SAVE TO CACHE
+        if db and "suggestions" in data:
+            db.collection(CACHE_COLLECTION).document(cache_id).set(data)
 
-            # 3. SAVE TO CACHE
-            if db and "suggestions" in data:
-                db.collection(CACHE_COLLECTION).document(cache_id).set(data)
+        return data
 
-            return data
-
-        except exceptions.ResourceExhausted:
-            key_manager.apply_cooldown(current_key, seconds=60)
-            continue
-
-        except Exception as e:
-            print(f"AI Error: {e}")
-            return {"suggestions": []}
-
-    return {"error": "All AI servers are currently busy. Please wait a moment before trying again."}
+    except Exception as e:
+        print(f"AI Error: {e}")
+        return {"suggestions": []}
