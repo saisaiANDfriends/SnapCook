@@ -158,6 +158,11 @@ def analyze_image_with_gemini(image_bytes):
     Carefully analyze the volume, count, and size of the physical ingredients in the image. Calculate the exact number of servings these specific items will yield. Do not use generic default servings.
     Example: If you see exactly 2 chicken breasts and 3 potatoes, the yield is exactly 2 servings. 
     
+    STRICT RULE 3 - SHORT RECIPE NAMES:
+    Keep the "recipe_name" strictly between 1 to 3 words. Do NOT use descriptive fluff like "Classic", "Style", "Delicious", or "Authentic". 
+    - GOOD: "Chicken Adobo", "Beef Pares", "Pork Sinigang"
+    - BAD: "Classic Savory Filipino Chicken Adobo with Soy Sauce"
+    
     CRITICAL INSTRUCTION ON QUANTITIES:
     You MUST provide specific measurements for EVERY detected ingredient based on your visual estimation.
     - GOOD: "2 whole Chicken Breasts (approx 400g)", "3 medium Tomatoes"
@@ -233,9 +238,10 @@ async def search_recipes_by_text(ingredients_list: list):
     TASK: Suggest 3 distinct recipes using: {ingredients_str}.
     
     REQUIREMENTS:
-    1. INGREDIENTS MUST HAVE QUANTITIES (e.g., '1 cup', '2 tbsp', '500g').
-    2. Instructions must be descriptive and include cooking times.
-    3. Prioritize Filipino dishes if applicable.
+    1. SHORT NAMES: The "recipe_name" MUST be 1-3 words only. No descriptive adjectives.
+    2. INGREDIENTS MUST HAVE QUANTITIES (e.g., '1 cup', '500g').
+    3. Instructions must be descriptive and include cooking times.
+    4. Prioritize Filipino dishes if applicable.
     
     RETURN JSON ONLY:
     {{
