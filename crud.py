@@ -144,7 +144,7 @@ def get_favorites(user_id: str):
 # --- 5. AI: IMAGE SCAN (STRICT QUANTITIES) ---
 def analyze_image_with_gemini(image_bytes):
     print("--- [DEBUG] Sending Image to Gemini with STRICT Constraints... ---")
-    model = genai.GenerativeModel('gemini-3.1-flash-lite')
+    model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
 
     # --- THE NEW HYPER-STRICT PROMPT ---
     prompt = """
@@ -231,7 +231,7 @@ async def search_recipes_by_text(ingredients_list: list):
             return doc.to_dict()
 
     # 2. ASK AI
-    model = genai.GenerativeModel('gemini-3.1-flash-lite') 
+    model = genai.GenerativeModel('gemini-3.1-flash-lite-preview') 
 
     prompt = f"""
     ROLE: You are an expert Chef.
