@@ -148,7 +148,10 @@ def analyze_image_with_gemini(image_bytes):
     # --- THE NEW HYPER-STRICT PROMPT ---
     prompt = """
     ROLE: You are an expert Head Chef, a highly precise visual estimator and visual  classifier.
-    TASK: Analyze the image of the ingredients. Suggest 3 recipes that can be made USING ONLY the ingredients visible in the picture.
+    TASK: 
+    - Analyze the image of the ingredients. Suggest 3 recipes that can be made USING ONLY the ingredients visible in the picture. 
+    - Prioritize Filipino dishes if applicable to the provided ingredients. If the ingredients do not fit Filipino cuisine, search for other established world dishes. 
+    - You must transform the canned goods into a real cooked dish using the assumed pantry items.
 
     CRITICAL REJECTION RULE (PRIORITY 1):
     Before suggesting recipes, analyze if the image contains actual, edible food ingredients.
@@ -166,6 +169,7 @@ def analyze_image_with_gemini(image_bytes):
     The suggested recipes MUST be real, established culinary dishes recognized in human cuisine. 
     - Do NOT hallucinate or invent weird, gross, or non-existent recipes just to satisfy the prompt (e.g., do not suggest "Chocolate Onion Soup" if you see chocolate and onions).
     - If the visible ingredients are completely incompatible and cannot be combined into at least one REAL, culturally recognized dish, you MUST reject the image and return exactly: {"suggestions": [{"recipe_name": "incompatible ingredients"}]}.
+
     CRITICAL REJECTION RULE (PRIORITY 4) - BLURRY OR UNRECOGNIZABLE IMAGE:
     If the image is too blurry, too dark, or the ingredients are obstructed to the point where you cannot confidently identify what the main ingredients are, you MUST reject it. Do not guess. Return exactly: {"suggestions": [{"recipe_name": "unrecognizable"}]}.
     
@@ -184,6 +188,17 @@ def analyze_image_with_gemini(image_bytes):
     STRICT RULE 4 - EXACT QUANTITIES & CONCISE INSTRUCTIONS:
     You MUST provide specific measurements for EVERY detected ingredient based on your visual estimation (e.g., "2 whole Chicken Breasts (approx 400g)", "3 medium Tomatoes"). 
     Furthermore, write the cooking instructions clearly and concisely. Include exact cooking times and heat levels (e.g., "medium-high heat"). Keep each step punchy, brief, and easy to read.
+
+    STRICT RULE 5 - EXHAUSTIVE & SIMPLE STEP-BY-STEP INSTRUCTIONS:
+    1. QUANTITIES: Provide specific measurements for EVERY ingredient based on visual estimation (e.g., "2 whole Chicken Breasts (approx 400g)", "3 medium Tomatoes").
+    2. VOLUME OF STEPS: Provide a minimum of 8 and up to 12 detailed steps. Do not group multiple major actions into one step. Break everything down.
+    3. LANGUAGE SIMPLIFICATION: Use ONLY everyday language. Do NOT use professional culinary terms without immediate simple explanations.
+    - NO: "Sauté the aromatics." -> YES: "Put the oil in the pan and cook the garlic and onions, stirring them around until they turn soft and smell good."
+    - NO: "Deglaze the pan." -> YES: "Pour a little water or soy sauce into the hot pan and scrape the brown bits off the bottom with your spoon to get all the extra flavor."
+    - NO: "Sear the meat." -> YES: "Place the meat in the very hot pan and leave it alone for 3 minutes without moving it until that side turns dark brown and crispy."
+    - NO: "Simmer until reduced." -> YES: "Lower the heat until the liquid is just barely bubbling, and wait until some of the water evaporates and the sauce becomes thick."
+    4. CRITICAL VISUAL & AROMATIC CUES: For every 2 steps, include a sensory check (e.g., "The chicken should look white all the way through, not pink," or "The kitchen should start to smell like toasted garlic").
+    5. SAFETY & TIPS: Include simple tips like "Be careful of splashing oil" or "Make sure to cut the vegetables into the same size so they all cook at the same time."
 
     RETURN ONLY RAW JSON (Do NOT include a missing_ingredients field):
     {
@@ -277,34 +292,47 @@ async def search_recipes_by_text(ingredients_list: list):
     model = genai.GenerativeModel('gemini-3.1-flash-lite-preview') 
 
     prompt = f"""
-    ROLE: You are an expert Chef.
-    TASK: Suggest 3 distinct recipes using: {ingredients_str}.
-    
-    REQUIREMENTS:
-    1. Keep the "recipe_name" strictly between 1 to 3 words. Do NOT use descriptive fluff like "Classic", "Style", "Delicious", or "Authentic". 
-    - GOOD: "Chicken Adobo", "Beef Pares", "Pork Sinigang"
-    - BAD: "Classic Savory Filipino Chicken Adobo"
-    2. INGREDIENTS MUST HAVE QUANTITIES (e.g., '1 cup', '500g').
-    3. Instructions must be descriptive and include cooking times.
-    4. Prioritize Filipino dishes if applicable but if not then search another dishes.
+        ROLE: You are an expert Chef specializing in pantry-staple transformations and clear culinary education.
+        TASK: Suggest 3 distinct, real recipes using the following ingredients: {ingredients_str}. 
+        
+        CRITICAL RULE - NO FAKE OR INVENTED RECIPES:
+        The suggested recipes MUST be real, established culinary dishes recognized in human cuisine. Do NOT invent or hallucinate weird, non-existent recipes just to force all ingredients together.
 
+        STRICT RULE 1 - MANDATORY COOKING TRANSFORMATION & PANTRY ITEMS:
+        You MUST assume the user has water, salt, pepper, and basic cooking oil. Every recipe must involve a cooking step (sautéing, boiling, frying, etc.). 
+        - CRITICAL: If you use these assumed items (oil, water, salt, pepper), you MUST explicitly list them in the "detected_ingredients" array.
 
-    
-    
-    RETURN JSON ONLY:
-    {{
-      "suggestions": [
+        STRICT RULE 2 - SHORT RECIPE NAMES:
+        Keep the "recipe_name" strictly between 1 to 3 words. Do NOT use descriptive fluff like "Classic", "Style", "Delicious", or "Authentic". 
+        - GOOD: "Chicken Adobo", "Beef Pares", "Pork Sinigang"
+        - BAD: "Classic Savory Filipino Chicken Adobo"
+
+        STRICT RULE 3 - EXHAUSTIVE & SIMPLE STEP-BY-STEP INSTRUCTIONS:
+        1. QUANTITIES: Provide specific measurements for EVERY ingredient (e.g., '1 cup', '500g').
+        2. VOLUME OF STEPS: Provide a minimum of 8 and up to 12 detailed steps. Do not group multiple major actions into one step.
+        3. LANGUAGE SIMPLIFICATION: Use ONLY everyday language. Do NOT use professional culinary terms without immediate simple explanations.
+        - NO: "Sauté the aromatics." -> YES: "Put the oil in the pan and cook the garlic and onions, stirring them around until they turn soft and smell good."
+        - NO: "Sear the meat." -> YES: "Place the meat in the very hot pan and leave it alone for 3 minutes without moving it until that side turns dark brown and crispy."
+        4. VISUAL & AROMATIC CUES: Include sensory checks (e.g., "until the sauce is thick enough to coat your spoon" or "until the kitchen smells like toasted garlic").
+        5. SAFETY & TIPS: Include simple tips like "Be careful of splashing oil."
+
+        STRICT RULE 4 - DISH PRIORITY:
+        Prioritize Filipino dishes if applicable to the provided ingredients. If the ingredients do not fit Filipino cuisine, search for other established world dishes.
+
+        RETURN JSON ONLY:
         {{
-          "recipe_name": "Name",
-          "detected_ingredients": ["Quantity + Ingredient", "Quantity + Ingredient"], 
-          "missing_ingredients": ["Quantity + Ingredient"],
-          "estimated_servings": 2,
-          "serving_reasoning": "Standard serving.",
-          "instructions": ["Step 1 details...", "Step 2 details..."]
+        "suggestions": [
+            {{
+            "recipe_name": "Name",
+            "detected_ingredients": ["Quantity + Ingredient"], 
+            "missing_ingredients": ["Quantity + Ingredient"],
+            "estimated_servings": 2,
+            "serving_reasoning": "Standard serving size.",
+            "instructions": ["1. Detailed step...", "2. Detailed step..."]
+            }}
+        ]
         }}
-      ]
-    }}
-    """
+        """
     
     try:
         response = model.generate_content(prompt)
