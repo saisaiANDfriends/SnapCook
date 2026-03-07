@@ -148,8 +148,14 @@ def analyze_image_with_gemini(image_bytes):
 
     # --- THE NEW HYPER-STRICT PROMPT ---
     prompt = """
-    ROLE: You are an expert Head Chef and a highly precise visual estimator.
+    ROLE: You are an expert Head Chef, a highly precise visual estimator and visual  classifier.
     TASK: Analyze the image of the ingredients. Suggest 3 recipes that can be made USING ONLY the ingredients visible in the picture.
+
+    CRITICAL REJECTION RULE (PRIORITY 1):
+    Before suggesting recipes, analyze if the image contains actual, edible food ingredients.
+    - If the image contains NO food (e.g., a hand, a banknote/money, a wall, electronics, animals, or a person), you MUST return: {"suggestions": [{"recipe_name": "no food"}]}.
+    - If you see a cooking pot or container but cannot clearly see the food inside it, you MUST return: {"suggestions": [{"recipe_name": "no food"}]}.
+    - Do NOT try to be funny. Do NOT suggest "Currency Exchange" or "Empty Pot" as a recipe.
     
     STRICT RULE 1 - NO MISSING INGREDIENTS:
     The recipes MUST NOT require any ingredients that are not clearly visible in the image. You may ONLY assume the user has water, salt, pepper, and basic cooking oil. Do not add sauces, spices, or garnishes that you cannot see. 
@@ -191,18 +197,29 @@ def analyze_image_with_gemini(image_bytes):
         data = json.loads(text)
         
         if "suggestions" in data:
+            # Check if the AI triggered the 'no food' safety valve
+            if any(s.get("recipe_name", "").lower() == "no food" for s in data["suggestions"]):
+                print("--- [DEBUG] AI Safety Triggered: No Food Detected. ---")
+                return {
+                    "suggestions": [{
+                        "recipe_name": "no food",
+                        "detected_ingredients": [],
+                        "missing_ingredients": [],
+                        "estimated_servings": 0,
+                        "serving_reasoning": "No edible food ingredients were detected in the image.",
+                        "instructions": ["Please try taking a clearer photo of your ingredients."]
+                    }]
+                }
+
             valid_suggestions = []
-            
             for recipe in data["suggestions"]:
                 name = recipe.get("recipe_name", "Food")
                 
+                # Double-check naming to prevent "Unknown" results from passing
                 if "no food" in name.lower() or "unknown" in name.lower():
                     continue
 
-                # Ensure servings are at least 1, but rely on the AI's strict estimation
                 recipe["estimated_servings"] = max(1, recipe.get("estimated_servings", 1))
-
-                # Use the clean_name logic we just perfected!
                 recipe["image_url"] = get_dish_image(name)
                 
                 valid_suggestions.append(recipe)
@@ -240,7 +257,7 @@ async def search_recipes_by_text(ingredients_list: list):
     REQUIREMENTS:
     1. Keep the "recipe_name" strictly between 1 to 3 words. Do NOT use descriptive fluff like "Classic", "Style", "Delicious", or "Authentic". 
     - GOOD: "Chicken Adobo", "Beef Pares", "Pork Sinigang"
-    - BAD: "Classic Savory Filipino Chicken Ad
+    - BAD: "Classic Savory Filipino Chicken Adobo"
     2. INGREDIENTS MUST HAVE QUANTITIES (e.g., '1 cup', '500g').
     3. Instructions must be descriptive and include cooking times.
     4. Prioritize Filipino dishes if applicable but if not then search another dishes.
