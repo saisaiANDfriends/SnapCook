@@ -155,6 +155,19 @@ def analyze_image_with_gemini(image_bytes):
     - If the image contains NO food (e.g., a hand, a banknote/money, a wall, electronics, animals, or a person), you MUST return: {"suggestions": [{"recipe_name": "no food"}]}.
     - If you see a cooking pot or container but cannot clearly see the food inside it, you MUST return: {"suggestions": [{"recipe_name": "no food"}]}.
     - Do NOT try to be funny. Do NOT suggest "Currency Exchange" or "Empty Pot" as a recipe.
+
+    CRITICAL REJECTION RULE (PRIORITY 2) - MUST HAVE A MAIN INGREDIENT:
+    To cook a real dish, the image MUST contain at least one "main" ingredient.
+    - Valid main ingredients include: Meats (chicken, pork, beef), Seafood, Tofu, bulk Vegetables (e.g., eggplant, squash, cabbage, potatoes, leafy greens), Fruits, Dairy/Eggs, OR Baking/Sweet ingredients (e.g., chocolate, fudge bars, flour, bread).
+    - Aromatics and condiments are NOT main ingredients (e.g., garlic, onion, ginger, soy sauce, oil, salt, pepper).
+    If the image ONLY contains aromatics/condiments and NO main ingredient, you MUST reject it and return exactly: {"suggestions": [{"recipe_name": "needs main ingredient"}]}.
+
+    CRITICAL REJECTION RULE (PRIORITY 3) - NO FAKE OR INVENTED RECIPES:
+    The suggested recipes MUST be real, established culinary dishes recognized in human cuisine. 
+    - Do NOT hallucinate or invent weird, gross, or non-existent recipes just to satisfy the prompt (e.g., do not suggest "Chocolate Onion Soup" if you see chocolate and onions).
+    - If the visible ingredients are completely incompatible and cannot be combined into at least one REAL, culturally recognized dish, you MUST reject the image and return exactly: {"suggestions": [{"recipe_name": "incompatible ingredients"}]}.
+    CRITICAL REJECTION RULE (PRIORITY 4) - BLURRY OR UNRECOGNIZABLE IMAGE:
+    If the image is too blurry, too dark, or the ingredients are obstructed to the point where you cannot confidently identify what the main ingredients are, you MUST reject it. Do not guess. Return exactly: {"suggestions": [{"recipe_name": "unrecognizable"}]}.
     
     STRICT RULE 1 - NO MISSING INGREDIENTS:
     The recipes MUST NOT require any ingredients that are not clearly visible in the image. You may ONLY assume the user has water, salt, pepper, and basic cooking oil. Do not add sauces, spices, or garnishes that you cannot see. 
@@ -167,10 +180,10 @@ def analyze_image_with_gemini(image_bytes):
     Keep the "recipe_name" strictly between 1 to 3 words. Do NOT use descriptive fluff like "Classic", "Style", "Delicious", or "Authentic". 
     - GOOD: "Chicken Adobo", "Beef Pares", "Pork Sinigang"
     - BAD: "Classic Savory Filipino Chicken Adobo with Soy Sauce"
-    
-    CRITICAL INSTRUCTION ON QUANTITIES:
-    You MUST provide specific measurements for EVERY detected ingredient based on your visual estimation.
-    - GOOD: "2 whole Chicken Breasts (approx 400g)", "3 medium Tomatoes"
+
+    STRICT RULE 4 - EXACT QUANTITIES & CONCISE INSTRUCTIONS:
+    You MUST provide specific measurements for EVERY detected ingredient based on your visual estimation (e.g., "2 whole Chicken Breasts (approx 400g)", "3 medium Tomatoes"). 
+    Furthermore, write the cooking instructions clearly and concisely. Include exact cooking times and heat levels (e.g., "medium-high heat"). Keep each step punchy, brief, and easy to read.
 
     RETURN ONLY RAW JSON (Do NOT include a missing_ingredients field):
     {
@@ -190,6 +203,7 @@ def analyze_image_with_gemini(image_bytes):
         response = model.generate_content([
             {"mime_type": "image/jpeg", "data": image_bytes},
             prompt
+            
         ])
         
         text = response.text.replace('```json', '').replace('```', '').strip()
@@ -197,16 +211,29 @@ def analyze_image_with_gemini(image_bytes):
         
         if "suggestions" in data:
             # Check if the AI triggered the 'no food' safety valve
+            # 1. No Food
             if any(s.get("recipe_name", "").lower() == "no food" for s in data["suggestions"]):
-                print("--- [DEBUG] AI Safety Triggered: No Food Detected. ---")
+                return {"suggestions": [{"recipe_name": "no food", "detected_ingredients": [], "missing_ingredients": [], "estimated_servings": 0, "serving_reasoning": "No edible food ingredients were detected in the image.", "instructions": ["Please try taking a clearer photo of your ingredients."]}]}
+            
+            # 2. Needs Main Ingredient
+            if any("needs main ingredient" in s.get("recipe_name", "").lower() for s in data["suggestions"]):
+                return {"suggestions": [{"recipe_name": "needs main ingredient", "detected_ingredients": [], "missing_ingredients": [], "estimated_servings": 0, "serving_reasoning": "Only aromatics or condiments were detected.", "instructions": ["Please try taking a photo that includes a main ingredient."]}]}
+
+            # 3. Incompatible Ingredients
+            if any("incompatible ingredients" in s.get("recipe_name", "").lower() for s in data["suggestions"]):
+                return {"suggestions": [{"recipe_name": "incompatible ingredients", "detected_ingredients": [], "missing_ingredients": [], "estimated_servings": 0, "serving_reasoning": "The scanned ingredients do not combine into a known culinary dish.", "instructions": ["Try adding or removing some ingredients to match a real recipe."]}]}
+
+            # 4. NEW: Unrecognizable / Blurry
+            if any("unrecognizable" in s.get("recipe_name", "").lower() for s in data["suggestions"]):
+                print("--- [DEBUG] AI Safety Triggered: Image Too Blurry/Unrecognizable. ---")
                 return {
                     "suggestions": [{
-                        "recipe_name": "no food",
+                        "recipe_name": "unrecognizable",
                         "detected_ingredients": [],
                         "missing_ingredients": [],
                         "estimated_servings": 0,
-                        "serving_reasoning": "No edible food ingredients were detected in the image.",
-                        "instructions": ["Please try taking a clearer photo of your ingredients."]
+                        "serving_reasoning": "The AI could not confidently identify the ingredients due to poor image quality.",
+                        "instructions": ["Make sure you have good lighting and the camera is steady, then try again!"]
                     }]
                 }
 
