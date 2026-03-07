@@ -298,10 +298,6 @@ async def search_recipes_by_text(ingredients_list: list):
                 
                 recipe["image_url"] = get_dish_image(name)
 
-        # 3. SAVE TO CACHE
-        if db and "suggestions" in data:
-            db.collection(CACHE_COLLECTION).document(cache_id).set(data)
-
         return data
 
     except Exception as e:
