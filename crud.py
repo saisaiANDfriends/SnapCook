@@ -238,10 +238,15 @@ async def search_recipes_by_text(ingredients_list: list):
     TASK: Suggest 3 distinct recipes using: {ingredients_str}.
     
     REQUIREMENTS:
-    1. SHORT NAMES: The "recipe_name" MUST be 1-3 words only. No descriptive adjectives.
+    1. Keep the "recipe_name" strictly between 1 to 3 words. Do NOT use descriptive fluff like "Classic", "Style", "Delicious", or "Authentic". 
+    - GOOD: "Chicken Adobo", "Beef Pares", "Pork Sinigang"
+    - BAD: "Classic Savory Filipino Chicken Ad
     2. INGREDIENTS MUST HAVE QUANTITIES (e.g., '1 cup', '500g').
     3. Instructions must be descriptive and include cooking times.
-    4. Prioritize Filipino dishes if applicable.
+    4. Prioritize Filipino dishes if applicable but if not then search another dishes.
+
+
+    
     
     RETURN JSON ONLY:
     {{
