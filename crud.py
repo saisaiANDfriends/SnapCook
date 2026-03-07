@@ -72,10 +72,9 @@ def get_dish_image(dish_name):
     
     return "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=500&auto=format&fit=crop"
 # --- 1. FIRESTORE: USER MANAGEMENT ---
+# crud.py (Already correct, just verify it exists)
 def create_user(user_id: str, device_uuid: str):
-    if db is None: return {"error": "Database not connected"}
-    
-    user_ref = db.collection(USERS_COLLECTION).document(user_id)
+    user_ref = db.collection("users").document(user_id) # writes to Firestore
     user_data = {
         "user_id": user_id,
         "device_uuid": device_uuid,
