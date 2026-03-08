@@ -78,7 +78,10 @@ def get_user_favorites(user_id: str):
 @app.post("/scan/ai/online", response_model=AIAnalysisResponse)
 async def analyze_online(file: UploadFile = File(...)):
     image_bytes = await file.read()
-    result = crud.analyze_image_with_gemini(image_bytes)
+    
+    # NEW: We must await this now because it fetches images concurrently!
+    result = await crud.analyze_image_with_gemini(image_bytes)
+    
     if "error" in result:
         raise HTTPException(status_code=500, detail=result["error"])
     return result
