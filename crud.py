@@ -242,12 +242,26 @@ async def search_recipes_by_text(ingredients_list: list):
 
     model = genai.GenerativeModel('gemini-3.1-flash-lite-preview') 
 
+    # --- UPDATED PROMPT: ADDED SAFETY AND REJECTION RULES ---
     prompt = f"""
         ROLE: You are an expert Chef specializing in pantry-staple transformations and clear culinary education.
-        TASK: Suggest 5 distinct, real recipes using the following ingredients: {ingredients_str}. 
-        
-        CRITICAL RULE - NO FAKE OR INVENTED RECIPES:
-        The suggested recipes MUST be real, established culinary dishes recognized in human cuisine. Do NOT invent or hallucinate weird, non-existent recipes just to force all ingredients together.
+        TASK: Evaluate the following user-provided ingredients: {ingredients_str}. 
+
+        CRITICAL REJECTION RULE 1 - UNSAFE OR NON-FOOD ITEMS:
+        If the ingredients contain items unfit for human consumption (e.g., dog meat, cat meat, insects, poison, dirt, household chemicals) or items that are sick/spoiled, you MUST reject the request to ensure human safety.
+        Return exactly: {{"suggestions": [{{"recipe_name": "no food"}}]}}
+
+        CRITICAL REJECTION RULE 2 - WEIRD/INCOMPATIBLE COMBINATIONS:
+        You are strictly forbidden from inventing or hallucinating weird, non-existent recipes just to force all the ingredients together. 
+        If the combination of ingredients is bizarre, gross, or cannot be combined into at least one REAL, culturally recognized human dish, you MUST reject the request.
+        Return exactly: {{"suggestions": [{{"recipe_name": "incompatible ingredients"}}]}}
+
+        CRITICAL REJECTION RULE 3 - NEEDS MAIN INGREDIENT:
+        If the user only provides condiments or aromatics (e.g., "salt, pepper, soy sauce, garlic") without a main ingredient, you MUST reject the request.
+        Return exactly: {{"suggestions": [{{"recipe_name": "needs main ingredient"}}]}}
+
+        If the ingredients ARE valid and safe, suggest up to 5 distinct, real recipes. 
+        IMPORTANT: You DO NOT have to use every single ingredient the user listed if it ruins the dish. It is better to drop an incompatible ingredient than to create a bad recipe.
 
         STRICT RULE 1 - MANDATORY COOKING TRANSFORMATION & PANTRY ITEMS:
         You MUST assume the user has water, salt, pepper, and basic cooking oil. Every recipe must involve a cooking step (sautéing, boiling, frying, etc.). 
@@ -262,9 +276,7 @@ async def search_recipes_by_text(ingredients_list: list):
         1. QUANTITIES: Provide specific measurements for EVERY ingredient (e.g., '1 cup', '500g').
         2. VOLUME OF STEPS: Provide a minimum of 8 and up to 12 detailed steps. Do not group multiple major actions into one step.
         3. LANGUAGE SIMPLIFICATION: Use ONLY everyday language. Do NOT use professional culinary terms without immediate simple explanations.
-        - NO: "Sauté the aromatics." -> YES: "Put the oil in the pan and cook the garlic and onions, stirring them around until they turn soft and smell good."
-        - NO: "Sear the meat." -> YES: "Place the meat in the very hot pan and leave it alone for 3 minutes without moving it until that side turns dark brown and crispy."
-        4. VISUAL & AROMATIC CUES: Include sensory checks (e.g., "until the sauce is thick enough to coat your spoon" or "until the kitchen smells like toasted garlic").
+        4. VISUAL & AROMATIC CUES: Include sensory checks (e.g., "until the sauce is thick enough to coat your spoon").
         5. SAFETY & TIPS: Include simple tips like "Be careful of splashing oil."
 
         STRICT RULE 4 - DISH PRIORITY:
@@ -286,14 +298,22 @@ async def search_recipes_by_text(ingredients_list: list):
         """
     
     try:
-        # Use generate_content_async to prevent blocking
         response = await model.generate_content_async(prompt)
         text = response.text.replace("```json", "").replace("```", "").strip()
         data = json.loads(text)
 
-        if "suggestions" in data:
-            print("--- [DEBUG] Fetching images concurrently... ---")
+        if "suggestions" in data and isinstance(data["suggestions"], list):
+            suggestions = data["suggestions"]
             
+            # --- NEW: CATCH REJECTIONS BEFORE FETCHING IMAGES ---
+            first_name = suggestions[0].get("recipe_name", "").lower()
+            rejection_keywords = ["no food", "needs main ingredient", "incompatible ingredients", "unrecognizable"]
+            
+            if any(key in first_name for key in rejection_keywords):
+                print(f"--- [DEBUG] Text Search AI Safety Triggered: {first_name} ---")
+                return data # Send the rejection straight to the Flutter app!
+
+            print("--- [DEBUG] Fetching images concurrently... ---")
             async def enrich_recipe(recipe):
                 name = recipe.get("recipe_name", "Food")
                 servings = recipe.get("estimated_servings", 1)
@@ -301,7 +321,7 @@ async def search_recipes_by_text(ingredients_list: list):
                 recipe["image_url"] = await get_dish_image(name)
                 return recipe
                 
-            data["suggestions"] = await asyncio.gather(*(enrich_recipe(r) for r in data["suggestions"]))
+            data["suggestions"] = await asyncio.gather(*(enrich_recipe(r) for r in suggestions))
 
         return data
 
