@@ -218,54 +218,40 @@ def analyze_image_with_gemini(image_bytes):
         response = model.generate_content([
             {"mime_type": "image/jpeg", "data": image_bytes},
             prompt
-            
         ])
         
         text = response.text.replace('```json', '').replace('```', '').strip()
         data = json.loads(text)
         
-        if "suggestions" in data:
-            # Check if the AI triggered the 'no food' safety valve
-            # 1. No Food
-            if any(s.get("recipe_name", "").lower() == "no food" for s in data["suggestions"]):
-                return {"suggestions": [{"recipe_name": "no food", "detected_ingredients": [], "missing_ingredients": [], "estimated_servings": 0, "serving_reasoning": "No edible food ingredients were detected in the image.", "instructions": ["Please try taking a clearer photo of your ingredients."]}]}
+        if "suggestions" in data and isinstance(data["suggestions"], list):
+            suggestions = data["suggestions"]
             
-            # 2. Needs Main Ingredient
-            if any("needs main ingredient" in s.get("recipe_name", "").lower() for s in data["suggestions"]):
-                return {"suggestions": [{"recipe_name": "needs main ingredient", "detected_ingredients": [], "missing_ingredients": [], "estimated_servings": 0, "serving_reasoning": "Only aromatics or condiments were detected.", "instructions": ["Please try taking a photo that includes a main ingredient."]}]}
+            # 1. Check if the FIRST suggestion is a rejection. 
+            # If the AI rejects the image, it usually only sends ONE suggestion back.
+            first_name = suggestions[0].get("recipe_name", "").lower()
+            rejection_keywords = ["no food", "needs main ingredient", "incompatible ingredients", "unrecognizable"]
+            
+            if any(key in first_name for key in rejection_keywords):
+                print(f"--- [DEBUG] AI Safety Triggered: {first_name} ---")
+                return data # Return the rejection as-is
 
-            # 3. Incompatible Ingredients
-            if any("incompatible ingredients" in s.get("recipe_name", "").lower() for s in data["suggestions"]):
-                return {"suggestions": [{"recipe_name": "incompatible ingredients", "detected_ingredients": [], "missing_ingredients": [], "estimated_servings": 0, "serving_reasoning": "The scanned ingredients do not combine into a known culinary dish.", "instructions": ["Try adding or removing some ingredients to match a real recipe."]}]}
-
-            # 4. NEW: Unrecognizable / Blurry
-            if any("unrecognizable" in s.get("recipe_name", "").lower() for s in data["suggestions"]):
-                print("--- [DEBUG] AI Safety Triggered: Image Too Blurry/Unrecognizable. ---")
-                return {
-                    "suggestions": [{
-                        "recipe_name": "unrecognizable",
-                        "detected_ingredients": [],
-                        "missing_ingredients": [],
-                        "estimated_servings": 0,
-                        "serving_reasoning": "The AI could not confidently identify the ingredients due to poor image quality.",
-                        "instructions": ["Make sure you have good lighting and the camera is steady, then try again!"]
-                    }]
-                }
-
+            # 2. If it's a valid scan, clean and enrich all 3 suggestions
             valid_suggestions = []
-            for recipe in data["suggestions"]:
-                name = recipe.get("recipe_name", "Food")
+            for recipe in suggestions:
+                name = recipe.get("recipe_name", "Unknown Dish")
                 
-                # Double-check naming to prevent "Unknown" results from passing
-                if "no food" in name.lower() or "unknown" in name.lower():
-                    continue
-
+                # Basic cleaning
                 recipe["estimated_servings"] = max(1, recipe.get("estimated_servings", 1))
+                
+                # Fetch image for each (Serper search)
+                print(f"--- [DEBUG] Fetching image for: {name} ---")
                 recipe["image_url"] = get_dish_image(name)
                 
                 valid_suggestions.append(recipe)
             
             data["suggestions"] = valid_suggestions
+            print(f"--- [DEBUG] Returning {len(valid_suggestions)} valid recipes ---")
+            
         return data
         
     except Exception as e:
