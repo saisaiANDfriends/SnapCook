@@ -149,7 +149,7 @@ def analyze_image_with_gemini(image_bytes):
     prompt = """
     ROLE: You are an expert Head Chef, a highly precise visual estimator and visual  classifier.
     TASK: 
-    - Analyze the image of the ingredients. Suggest 3 recipes that can be made USING ONLY the ingredients visible in the picture. 
+    - Analyze the image of the ingredients. Suggest 5 recipes that can be made USING ONLY the ingredients visible in the picture. 
     - Prioritize Filipino dishes if applicable to the provided ingredients. If the ingredients do not fit Filipino cuisine, search for other established world dishes. 
     - You must transform the canned goods into a real cooked dish using the assumed pantry items.
 
@@ -279,7 +279,7 @@ async def search_recipes_by_text(ingredients_list: list):
 
     prompt = f"""
         ROLE: You are an expert Chef specializing in pantry-staple transformations and clear culinary education.
-        TASK: Suggest 3 distinct, real recipes using the following ingredients: {ingredients_str}. 
+        TASK: Suggest 5 distinct, real recipes using the following ingredients: {ingredients_str}. 
         
         CRITICAL RULE - NO FAKE OR INVENTED RECIPES:
         The suggested recipes MUST be real, established culinary dishes recognized in human cuisine. Do NOT invent or hallucinate weird, non-existent recipes just to force all ingredients together.
