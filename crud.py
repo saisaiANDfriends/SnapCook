@@ -46,7 +46,7 @@ def get_dish_image(dish_name):
     
     # Use clean_name here!
     payload = json.dumps({
-      "q": f"{clean_name}" 
+      "q": f"{clean_name} recipe" 
     })
     
     headers = {
