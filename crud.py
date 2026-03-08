@@ -7,7 +7,7 @@ import json
 import hashlib
 from dotenv import load_dotenv
 import time
-import asyncio  # <--- NEW: Imported asyncio to prevent server blocking
+import asyncio
 import requests
 
 load_dotenv(override=True)
@@ -23,17 +23,11 @@ USERS_COLLECTION = "users"
 RECIPES_COLLECTION = "recipes"
 CACHE_COLLECTION = "search_cache" 
 
-def get_dish_image(dish_name):
-    """
-    Using Serper.dev as Google deprecated Custom Search API for new projects.
-    Acts as a universal filter to clean recipe names before searching.
-    """
+# --- ASYNC IMAGE FETCHING ---
+async def get_dish_image(dish_name):
     api_key = os.getenv("SERPER_API_KEY")
     
-    # --- UNIVERSAL CLEANING LOGIC ---
-    # 1. Chop off parentheses
     clean_name = dish_name.split('(')[0].strip()
-    # 2. Remove AI fluff words
     clean_name = clean_name.replace("Classic", "").replace("Speedy", "").strip()
     
     print(f"--- [DEBUG] Serper searching for Cleaned Name: '{clean_name}' ---")
@@ -43,19 +37,14 @@ def get_dish_image(dish_name):
         return "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=500&auto=format&fit=crop"
 
     url = "https://google.serper.dev/images"
-    
-    # Use clean_name here!
-    payload = json.dumps({
-      "q": f"{clean_name} recipe" 
-    })
-    
-    headers = {
-      'X-API-KEY': api_key,
-      'Content-Type': 'application/json'
-    }
+    payload = json.dumps({"q": f"{clean_name} recipe"})
+    headers = {'X-API-KEY': api_key, 'Content-Type': 'application/json'}
 
     try:
-        response = requests.request("POST", url, headers=headers, data=payload, timeout=5)
+        # Puts the synchronous requests call into a background thread so it doesn't block FastAPI
+        response = await asyncio.to_thread(
+            requests.request, "POST", url, headers=headers, data=payload, timeout=5
+        )
         
         if response.status_code == 200:
             data = response.json()
@@ -71,10 +60,10 @@ def get_dish_image(dish_name):
         print(f"--- [Image Search Network Error] {e} ---")
     
     return "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=500&auto=format&fit=crop"
+
 # --- 1. FIRESTORE: USER MANAGEMENT ---
-# crud.py (Already correct, just verify it exists)
 def create_user(user_id: str, device_uuid: str):
-    user_ref = db.collection("users").document(user_id) # writes to Firestore
+    user_ref = db.collection("users").document(user_id) 
     user_data = {
         "user_id": user_id,
         "device_uuid": device_uuid,
@@ -86,48 +75,33 @@ def create_user(user_id: str, device_uuid: str):
 # --- 2. FIRESTORE: SAVE SCANS ---
 def save_scan(user_id: str, ingredients: list):
     if db is None: return {"error": "Database not connected"}
-
     scan_data = {
         "detected_ingredients": ingredients,
         "timestamp": datetime.utcnow().isoformat()
     }
-    
     db.collection(USERS_COLLECTION).document(user_id).collection("scans").add(scan_data)
     return scan_data
 
 # --- 3. FIRESTORE: FIND RECIPES (DATABASE SEARCH) ---
 def find_recipes_by_ingredients(ingredients: list):
     if db is None: return []
-
     recipes_ref = db.collection(RECIPES_COLLECTION)
-    
-    # Firestore limit: array_contains_any max 10 items
     search_list = ingredients[:10]
-    
     query = recipes_ref.where(filter=FieldFilter("ingredients", "array_contains_any", search_list))
-    
     results = []
     for doc in query.stream():
         data = doc.to_dict()
         data['id'] = doc.id
         results.append(data)
-        
     return results
 
 # --- 4. FIRESTORE: FAVORITES ---
 def add_favorite(favorite_data: dict):
     if db is None: return {"error": "Database not connected"}
-
     user_id = favorite_data.get("user_id")
     recipe_id = favorite_data.get("recipe_id")
-
-    # Add a timestamp to the data
     favorite_data["added_at"] = datetime.utcnow().isoformat()
-    
-    # Save the FULL data dictionary to Firestore
-    # This includes ingredients, instructions, servings, etc.
     db.collection(USERS_COLLECTION).document(user_id).collection("favorites").document(recipe_id).set(favorite_data)
-    
     return favorite_data
 
 def remove_favorite(user_id: str, recipe_id: str):
@@ -140,12 +114,11 @@ def get_favorites(user_id: str):
     docs = db.collection(USERS_COLLECTION).document(user_id).collection("favorites").stream()
     return [doc.to_dict() for doc in docs]
 
-# --- 5. AI: IMAGE SCAN (STRICT QUANTITIES) ---
-def analyze_image_with_gemini(image_bytes):
+# --- 5. AI: IMAGE SCAN ---
+async def analyze_image_with_gemini(image_bytes):
     print("--- [DEBUG] Sending Image to Gemini with STRICT Constraints... ---")
     model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
 
-    # --- THE NEW HYPER-STRICT PROMPT ---
     prompt = """
     ROLE: You are an expert Head Chef, a highly precise visual estimator and visual  classifier.
     TASK: 
@@ -215,7 +188,8 @@ def analyze_image_with_gemini(image_bytes):
     """
 
     try:
-        response = model.generate_content([
+        # Use generate_content_async to prevent blocking
+        response = await model.generate_content_async([
             {"mime_type": "image/jpeg", "data": image_bytes},
             prompt
         ])
@@ -226,30 +200,23 @@ def analyze_image_with_gemini(image_bytes):
         if "suggestions" in data and isinstance(data["suggestions"], list):
             suggestions = data["suggestions"]
             
-            # 1. Check if the FIRST suggestion is a rejection. 
-            # If the AI rejects the image, it usually only sends ONE suggestion back.
             first_name = suggestions[0].get("recipe_name", "").lower()
             rejection_keywords = ["no food", "needs main ingredient", "incompatible ingredients", "unrecognizable"]
             
             if any(key in first_name for key in rejection_keywords):
                 print(f"--- [DEBUG] AI Safety Triggered: {first_name} ---")
-                return data # Return the rejection as-is
+                return data 
 
-            # 2. If it's a valid scan, clean and enrich all 3 suggestions
-            valid_suggestions = []
-            for recipe in suggestions:
+            # Gather all images concurrently!
+            async def enrich_recipe(recipe):
                 name = recipe.get("recipe_name", "Unknown Dish")
-                
-                # Basic cleaning
                 recipe["estimated_servings"] = max(1, recipe.get("estimated_servings", 1))
-                
-                # Fetch image for each (Serper search)
                 print(f"--- [DEBUG] Fetching image for: {name} ---")
-                recipe["image_url"] = get_dish_image(name)
-                
-                valid_suggestions.append(recipe)
+                recipe["image_url"] = await get_dish_image(name)
+                return recipe
             
-            data["suggestions"] = valid_suggestions
+            valid_suggestions = await asyncio.gather(*(enrich_recipe(r) for r in suggestions))
+            data["suggestions"] = list(valid_suggestions)
             print(f"--- [DEBUG] Returning {len(valid_suggestions)} valid recipes ---")
             
         return data
@@ -258,12 +225,11 @@ def analyze_image_with_gemini(image_bytes):
         print(f"Gemini Error: {e}")
         return {"suggestions": []}
 
-# --- 6. AI: TEXT SEARCH (STRICT QUANTITIES + HISTORY) ---
+# --- 6. AI: TEXT SEARCH ---
 async def search_recipes_by_text(ingredients_list: list):
     ingredients_str = ", ".join(ingredients_list)
     print(f"--- [DEBUG] Searching Text: {ingredients_str} ---")
     
-    # 1. CHECK CACHE (Simple version)
     ingredients_list.sort()
     combo_string = "_".join(ingredients_list).lower().strip()
     cache_id = hashlib.md5(combo_string.encode()).hexdigest()
@@ -274,7 +240,6 @@ async def search_recipes_by_text(ingredients_list: list):
             print("--- [CACHE HIT] Returning saved results ---")
             return doc.to_dict()
 
-    # 2. ASK AI
     model = genai.GenerativeModel('gemini-3.1-flash-lite-preview') 
 
     prompt = f"""
@@ -321,23 +286,22 @@ async def search_recipes_by_text(ingredients_list: list):
         """
     
     try:
-        response = model.generate_content(prompt)
+        # Use generate_content_async to prevent blocking
+        response = await model.generate_content_async(prompt)
         text = response.text.replace("```json", "").replace("```", "").strip()
         data = json.loads(text)
 
         if "suggestions" in data:
-            print("--- [DEBUG] Fetching images... ---")
-            for recipe in data["suggestions"]:
+            print("--- [DEBUG] Fetching images concurrently... ---")
+            
+            async def enrich_recipe(recipe):
                 name = recipe.get("recipe_name", "Food")
                 servings = recipe.get("estimated_servings", 1)
                 if servings < 1: recipe["estimated_servings"] = 1
+                recipe["image_url"] = await get_dish_image(name)
+                return recipe
                 
-                print(f"--- [DEBUG] Waiting 1s before searching image for: {name} ---")
-                
-                # --- NEW: Async sleep prevents your whole server from locking up! ---
-                await asyncio.sleep(1) 
-                
-                recipe["image_url"] = get_dish_image(name)
+            data["suggestions"] = await asyncio.gather(*(enrich_recipe(r) for r in data["suggestions"]))
 
         return data
 
