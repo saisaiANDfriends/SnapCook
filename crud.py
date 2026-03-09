@@ -167,7 +167,7 @@ async def analyze_image_with_gemini(image_bytes):
 
     STRICT RULE 5 - EXHAUSTIVE & SIMPLE STEP-BY-STEP INSTRUCTIONS:
     1. QUANTITIES: Provide specific measurements for EVERY ingredient based on visual estimation (e.g., "2 whole Chicken Breasts (approx 400g)", "3 medium Tomatoes").
-    2. VOLUME OF STEPS: Provide a minimum of 8 and up to 15 detailed steps. Do not group multiple major actions into one step. Break everything down.
+    2. VOLUME OF STEPS: Provide a minimum of 10 and up to 15 detailed steps. Do not group multiple major actions into one step. Break everything down.
     3. LANGUAGE SIMPLIFICATION: Use ONLY everyday language. Do NOT use professional culinary terms without immediate simple explanations.
     - NO: "Sauté the aromatics." -> YES: "Put the oil in the pan and cook the garlic and onions, stirring them around until they turn soft and smell good."
     - NO: "Deglaze the pan." -> YES: "Pour a little water or soy sauce into the hot pan and scrape the brown bits off the bottom with your spoon to get all the extra flavor."
@@ -278,7 +278,7 @@ async def search_recipes_by_text(ingredients_list: list):
 
         STRICT RULE 3 - EXHAUSTIVE & SIMPLE STEP-BY-STEP INSTRUCTIONS:
         1. QUANTITIES: Provide specific measurements for EVERY ingredient (e.g., '1 cup', '500g').
-        2. VOLUME OF STEPS: Provide a minimum of 8 and up to 15 detailed steps. Do not group multiple major actions into one step.
+        2. VOLUME OF STEPS: Provide a minimum of 10 and up to 15 detailed steps. Do not group multiple major actions into one step.
         3. LANGUAGE SIMPLIFICATION: Use ONLY everyday language. Do NOT use professional culinary terms without immediate simple explanations.
         4. VISUAL & AROMATIC CUES: Include sensory checks (e.g., "until the sauce is thick enough to coat your spoon").
         5. SAFETY & TIPS: Include simple tips like "Be careful of splashing oil."
