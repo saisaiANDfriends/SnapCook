@@ -122,9 +122,10 @@ async def analyze_image_with_gemini(image_bytes):
     prompt = """
     ROLE: You are an expert Head Chef, a highly precise visual estimator and visual  classifier.
     TASK: 
-    - Analyze the image of the ingredients. Suggest 5 recipes that can be made USING ONLY the ingredients visible in the picture. 
+    - Analyze the image of the ingredients. You MUST suggest EXACTLY 5 distinct, real recipes that can be made using the ingredients visible in the picture. 
+    - IMPORTANT: You DO NOT have to use every single visible ingredient in every recipe. If you struggle to find 5 dishes that use everything together, you MUST create recipes using different combinations or smaller subsets of the visible ingredients until you reach exactly 5.
     - Prioritize Filipino dishes if applicable to the provided ingredients. If the ingredients do not fit Filipino cuisine, search for other established world dishes. 
-    - You must transform the canned goods into a real cooked dish using the assumed pantry items.
+    - You must transform the canned goods into a real cooked dish using the assumed pantry items or using the ingredients visible in the picture.
 
     CRITICAL REJECTION RULE (PRIORITY 1):
     Before suggesting recipes, analyze if the image contains actual, edible food ingredients.
@@ -260,8 +261,9 @@ async def search_recipes_by_text(ingredients_list: list):
         If the user only provides condiments or aromatics (e.g., "salt, pepper, soy sauce, garlic") without a main ingredient, you MUST reject the request.
         Return exactly: {{"suggestions": [{{"recipe_name": "needs main ingredient"}}]}}
 
-        If the ingredients ARE valid and safe, suggest up to 5 distinct, real recipes. 
-        IMPORTANT: You DO NOT have to use every single ingredient the user listed if it ruins the dish. It is better to drop an incompatible ingredient than to create a bad recipe.
+        # --- UPDATE THIS SECTION BELOW ---
+        If the ingredients ARE valid and safe, you MUST suggest EXACTLY 5 distinct, real recipes. 
+        IMPORTANT: You DO NOT have to use every single ingredient the user listed. If you struggle to find 5 dishes that use all the ingredients, you MUST drop the incompatible ones and suggest other real, established dishes using the remaining ingredients until you hit exactly 5.
 
         STRICT RULE 1 - MANDATORY COOKING TRANSFORMATION & PANTRY ITEMS:
         You MUST assume the user has water, salt, pepper, and basic cooking oil. Every recipe must involve a cooking step (sautéing, boiling, frying, etc.). 
