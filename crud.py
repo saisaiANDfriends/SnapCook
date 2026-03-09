@@ -135,7 +135,7 @@ async def analyze_image_with_gemini(image_bytes):
 
     CRITICAL REJECTION RULE (PRIORITY 2) - MUST HAVE A MAIN INGREDIENT:
     To cook a real dish, the image MUST contain at least one "main" ingredient.
-    - Valid main ingredients include: Meats (chicken, pork, beef), Seafood, Tofu, bulk Vegetables (e.g., eggplant, squash, cabbage, potatoes, leafy greens), Fruits, Dairy/Eggs, OR Baking/Sweet ingredients (e.g., chocolate, fudge bars, flour, bread).
+    - Valid main ingredients include: Meats (chicken, pork, beef), Seafood, Tofu, bulk Vegetables (e.g., eggplant, squash, cabbage, potatoes, leafy greens),Rice, Mung Bean Fruits, Dairy/Eggs, OR Baking/Sweet ingredients (e.g., chocolate, fudge bars, flour, bread).
     - Aromatics and condiments are NOT main ingredients (e.g., garlic, onion, ginger, soy sauce, oil, salt, pepper).
     If the image ONLY contains aromatics/condiments and NO main ingredient, you MUST reject it and return exactly: {"suggestions": [{"recipe_name": "needs main ingredient"}]}.
 
