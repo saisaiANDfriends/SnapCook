@@ -154,10 +154,12 @@ async def analyze_image_with_gemini(image_bytes):
     Carefully analyze the volume, count, and size of the physical ingredients in the image. Calculate the exact number of servings these specific items will yield. Do not use generic default servings.
     Example: If you see exactly 2 chicken breasts and 3 potatoes, the yield is exactly 2 servings. 
     
-    STRICT RULE 3 - SHORT RECIPE NAMES:
-    Keep the "recipe_name" strictly between 1 to 3 words. Do NOT use descriptive fluff like "Classic", "Style", "Delicious", or "Authentic". 
-    - GOOD: "Chicken Adobo", "Beef Pares", "Pork Sinigang"
-    - BAD: "Classic Savory Filipino Chicken Adobo with Soy Sauce"
+    STRICT RULE 3 - RECIPE NAMES & SPECIFICITY:
+    1. LENGTH: Keep the "recipe_name" strictly between 1 to 3 words. 
+    2. NO FLUFF: Do NOT use descriptive fluff like "Classic", "Style", "Delicious", or "Authentic".
+    3. MANDATORY SPECIFICITY: You MUST include the specific variety of fish or meat identified in the name to ensure accurate image fetching. 
+    - GOOD: "Grilled Tilapia", "Fried Galunggong", "Beef Caldereta"
+    - BAD: "Grilled Fish" (Too generic), "Fried Fish" (Too generic), "Classic Savory Filipino Chicken Adobo" (Too long)
 
     STRICT RULE 4 - EXACT QUANTITIES & CONCISE INSTRUCTIONS:
     You MUST provide specific measurements for EVERY detected ingredient based on your visual estimation (e.g., "2 whole Chicken Breasts (approx 400g)", "3 medium Tomatoes"). 
@@ -316,11 +318,13 @@ async def search_recipes_by_text(ingredients_list: list):
                 return data # Send the rejection straight to the Flutter app!
 
             print("--- [DEBUG] Fetching images concurrently... ---")
+            # Suggested change in crud.py
             async def enrich_recipe(recipe):
-                name = recipe.get("recipe_name", "Food")
-                servings = recipe.get("estimated_servings", 1)
-                if servings < 1: recipe["estimated_servings"] = 1
-                recipe["image_url"] = await get_dish_image(name)
+                name = recipe.get("recipe_name", "Unknown Dish")
+                # Use the first ingredient as a hint for the image search
+                first_ing = recipe.get("detected_ingredients", [""])[0]
+                search_query = f"{name} {first_ing}" 
+                recipe["image_url"] = await get_dish_image(search_query)
                 return recipe
                 
             data["suggestions"] = await asyncio.gather(*(enrich_recipe(r) for r in suggestions))
