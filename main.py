@@ -95,5 +95,7 @@ async def search_recipes(data: dict):
     result = await crud.search_recipes_by_text(ingredients)
     return result
 # --- ADD THIS TO YOUR main.py (Inside Endpoints) ---
-
+@app.get("/")
+async def root():
+    return {"status": "online", "message": "SnapCook Backend is active"}
 # --- ADD THIS TO main.py (Inside Endpoints section) ---
