@@ -182,7 +182,7 @@ async def analyze_image_with_gemini(image_bytes):
         {
           "recipe_name": "Name",
           "detected_ingredients": ["Quantity + Ingredient", "Quantity + Ingredient"],
-          "estimated_servings": 2,
+          "estimated_servings": 5,
           "serving_reasoning": "I counted exactly 2 chicken breasts and 3 medium potatoes visible, which yields exactly 2 standard portions.",
           "instructions": ["Step 1 details...", "Step 2 details..."]
         }
@@ -293,7 +293,7 @@ async def search_recipes_by_text(ingredients_list: list):
             "recipe_name": "Name",
             "detected_ingredients": ["Quantity + Ingredient"], 
             "missing_ingredients": ["Quantity + Ingredient"],
-            "estimated_servings": 2,
+            "estimated_servings": 5,
             "serving_reasoning": "Standard serving size.",
             "instructions": ["1. Detailed step...", "2. Detailed step..."]
             }}
