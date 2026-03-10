@@ -277,7 +277,7 @@ async def search_recipes_by_text(ingredients_list: list):
         - BAD: "Classic Savory Filipino Chicken Adobo"
 
         STRICT RULE 3 - EXHAUSTIVE & SIMPLE STEP-BY-STEP INSTRUCTIONS:
-        1. QUANTITIES: Provide specific measurements for EVERY ingredient (e.g., '1 cup', '500g').
+        1. QUANTITIES: Provide specific measurements for EVERY ingredient (e.g., '1 cup', '500g') and if possible, don't you always suggest 1-3 servings.
         2. VOLUME OF STEPS: Provide a minimum of 10 and up to 15 detailed steps. Do not group multiple major actions into one step.
         3. LANGUAGE SIMPLIFICATION: Use ONLY everyday language. Do NOT use professional culinary terms without immediate simple explanations.
         4. VISUAL & AROMATIC CUES: Include sensory checks (e.g., "until the sauce is thick enough to coat your spoon").
