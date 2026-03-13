@@ -29,15 +29,15 @@ class FavoriteSchema(BaseModel):
 class RemoveFavoriteSchema(BaseModel):
     user_id: str
     recipe_id: str 
-
+    
 class RecipeSuggestion(BaseModel):
     recipe_name: str
     image_url: str = ""
-    detected_ingredients: List[str]
+    detected_ingredients: List[str] = []     # Added default []
     missing_ingredients: List[str] = []
-    estimated_servings: int
-    serving_reasoning: str
-    instructions: List[str]
+    estimated_servings: int = 1              # Added default 1
+    serving_reasoning: str = ""              # Added default ""
+    instructions: List[str] = []             # Added default []
 
 class AIAnalysisResponse(BaseModel):
     suggestions: List[RecipeSuggestion]
